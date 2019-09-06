@@ -426,7 +426,7 @@ DEFAULTS = [
               'editor/close file 2': "Ctrl+F4",
               'editor/run cell': CTRL + '+Return',
               'editor/run cell and advance': 'Shift+Return',
-              'editor/debug cell': 'Alt+Shift+Return',
+              'editor/debug cell': '',
               'editor/go to next cell': 'Ctrl+Down',
               'editor/go to previous cell': 'Ctrl+Up',
               'editor/re-run last cell': 'Alt+Return',

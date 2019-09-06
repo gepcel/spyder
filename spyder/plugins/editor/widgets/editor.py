@@ -611,6 +611,10 @@ class EditorStack(QWidget):
         # --- Configurable shortcuts
         inspect = config_shortcut(self.inspect_current_object, context='Editor',
                                   name='Inspect current object', parent=self)
+        inspect_from_console = config_shortcut(
+                self.inspect_current_object_from_console,
+                context='Editor', name='Inspect current object from console',
+                parent=self)
         # TODO: Cleaner way to do this?
         app = QCoreApplication.instance()
         set_breakpoint = config_shortcut(self.set_or_clear_breakpoint,
@@ -733,7 +737,8 @@ class EditorStack(QWidget):
                                       parent=self)
 
         # Return configurable ones
-        return [inspect, set_breakpoint, set_cond_breakpoint, gotoline, tab,
+        return [inspect, inspect_from_console,
+                set_breakpoint, set_cond_breakpoint, gotoline, tab,
                 tabshift, run_selection, new_file, open_file, save_file,
                 save_all, save_as, close_all, prev_edit_pos, prev_cursor,
                 next_cursor, zoom_in_1, zoom_in_2, zoom_out, zoom_reset,
@@ -941,6 +946,17 @@ class EditorStack(QWidget):
         editor.request_hover(line, col, offset,
                              show_hint=False, clicked=bool(pos))
 
+    def inspect_current_object_from_console(self, pos=None):
+        """Inspect current object in the Help plugin"""
+        editor = self.get_current_editor()
+        editor.sig_display_object_info.connect(self.display_help_from_console)
+        cursor = None
+        offset = editor.get_position('cursor')
+        if pos:
+            cursor = editor.get_last_hover_cursor()
+        line, col = editor.get_cursor_line_column(cursor)
+        editor.request_hover(line, col, offset, show_hint=False, clicked=bool(pos))
+
     @Slot(str, bool)
     def display_help(self, help_text, clicked):
         editor = self.get_current_editor()
@@ -952,6 +968,19 @@ class EditorStack(QWidget):
         editor.sig_display_object_info.disconnect(self.display_help)
         self.help.switch_to_editor_source()
         self.send_to_help(name, help_text, force=True)
+
+    @Slot(str, bool)
+    def display_help_from_console(self, help_text, clicked):
+        editor = self.get_current_editor()
+        if clicked:
+            name = editor.get_last_hover_word()
+        else:
+            name = editor.get_current_word(console=True)
+
+        editor.sig_display_object_info.disconnect(
+            self.display_help_from_console)
+        self.help.switch_to_console_source()
+        self.send_to_help(name, help_text, force=True, console=True)
 
     #------ Editor Widget Settings
     def set_closable(self, state):
@@ -2444,7 +2473,7 @@ class EditorStack(QWidget):
         self.sig_editor_cursor_position_changed.emit(line, index)
 
     @Slot(str, str, bool)
-    def send_to_help(self, name, signature, force=False):
+    def send_to_help(self, name, signature, force=False, console=False):
         """qstr1: obj_text, qstr2: argpspec, qstr3: note, qstr4: doc_text"""
         if not force and not self.help_enabled:
             return
@@ -2462,7 +2491,10 @@ class EditorStack(QWidget):
             doc = {'obj_text': '', 'name': name,
                    'argspec': args, 'note': '',
                    'docstring': documentation}
-            self.help.set_editor_doc(doc, force_refresh=force)
+            if console:
+                self.help.set_object_text(name, force_refresh=force)
+            else:
+                self.help.set_editor_doc(doc, force_refresh=force)
             editor = self.get_current_editor()
             editor.setFocus()
 

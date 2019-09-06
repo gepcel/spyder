@@ -868,7 +868,7 @@ class BaseEditMixin(object):
         cursor = self.__select_text(position_from, position_to)
         cursor.removeSelectedText()
 
-    def get_current_word_and_position(self, completion=False):
+    def get_current_word_and_position(self, completion=False, console=False):
         """Return current word, i.e. word at cursor position,
             and the start position."""
         cursor = self.textCursor()
@@ -902,26 +902,39 @@ class BaseEditMixin(object):
                     curs = self.textCursor()
                     curs.movePosition(move, QTextCursor.KeepAnchor)
                     text_cursor = to_text_string(curs.selectedText()).strip()
-                    return len(re.findall(r'([^\d\W]\w*)',
-                                          text_cursor, re.UNICODE)) == 0
+                    if not console:
+                        return len(re.findall(r'([^\d\W]\w*)',
+                                              text_cursor, re.UNICODE)) == 0
+                    else:
+                        return len(re.findall('([a-zA-Z_]+[0-9a-zA-Z_\.]*)',
+                                              text_cursor, re.UNICODE)) == 0
                 if is_space(QTextCursor.PreviousCharacter):
                     return
                 if (is_special_character(QTextCursor.NextCharacter)):
                     cursor.movePosition(QTextCursor.WordLeft)
 
         cursor.select(QTextCursor.WordUnderCursor)
-        text = to_text_string(cursor.selectedText())
-        # find a valid python variable name
-        match = re.findall(r'([^\d\W]\w*)', text, re.UNICODE)
+        word = to_text_string(cursor.selectedText())
+        if console:
+            cursor.select(QTextCursor.BlockUnderCursor)
+            block = to_text_string(cursor.selectedText())
+            _pos_start = block.find(word)
+            _delta = block.rfind(' ', 0, _pos_start)
+            text = block[_delta+1:]
+            match = re.findall('([a-zA-Z_]+[0-9a-zA-Z_\.]*)', text, re.UNICODE)
+        else:
+            text = word
+            match = re.findall(r'([^\d\W]\w*)', text, re.UNICODE)
+
         if match:
             text, startpos = match[0], cursor.selectionStart()
             if completion:
                 text = text[:cursor_pos - startpos]
             return text, startpos
 
-    def get_current_word(self, completion=False):
-        """Return current word, i.e. word at cursor position."""
-        ret = self.get_current_word_and_position(completion)
+    def get_current_word(self, completion=False, console=False):
+        """Return current word, i.e. word at cursor position"""
+        ret = self.get_current_word_and_position(completion, console=console)
         if ret is not None:
             return ret[0]
 

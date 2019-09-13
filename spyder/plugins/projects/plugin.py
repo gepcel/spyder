@@ -45,6 +45,7 @@ class Projects(SpyderPluginWidget):
     """Projects plugin."""
 
     CONF_SECTION = 'project_explorer'
+    CONF_FILE = False
     sig_pythonpath_changed = Signal()
     sig_project_created = Signal(object, object, object)
     sig_project_loaded = Signal(object)
@@ -216,6 +217,11 @@ class Projects(SpyderPluginWidget):
         return opener
 
     # ------ Public API -------------------------------------------------------
+    def on_first_registration(self):
+        """Action to be performed on first plugin registration"""
+        # TODO: Uncomment for Spyder 5
+        # self.tabify(self.main.explorer)
+
     def setup_menu_actions(self):
         """Setup and update the menu actions."""
         self.recent_project_menu.clear()

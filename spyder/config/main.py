@@ -398,6 +398,7 @@ DEFAULTS = [
               'editor/select all': "Ctrl+A",
               # -- In widgets/editor.py
               'editor/inspect current object': 'Ctrl+I',
+              'editor/inspect current object from console': 'Alt+I',
               'editor/breakpoint': 'F12',
               'editor/conditional breakpoint': 'Shift+F12',
               'editor/run selection': "F9",

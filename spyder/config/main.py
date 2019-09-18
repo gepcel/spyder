@@ -401,7 +401,7 @@ DEFAULTS = [
               'editor/inspect current object from console': 'Alt+I',
               'editor/breakpoint': 'F12',
               'editor/conditional breakpoint': 'Shift+F12',
-              'editor/run selection': "Shift+Enter",
+              'editor/run selection': "Shift+Return",
               'editor/go to line': 'Ctrl+L',
               'editor/go to previous file': CTRL + '+Shift+Tab',
               'editor/go to next file': CTRL + '+Tab',

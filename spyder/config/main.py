@@ -501,9 +501,14 @@ DEFAULTS = [
               'advanced/external': False,
               'advanced/stdio': False
              }),
+            ('fallback-completions',
+             {
+              'enable': True,
+             }),
             ('kite',
              {
               'enable': True,
+              'call_to_action': True,
               # Enable the installation dialog
               'show_installation_dialog': True,
              }),

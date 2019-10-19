@@ -146,6 +146,7 @@ def find_desired_tab_in_window(tab_name, window):
 # =============================================================================
 # ---- Fixtures
 # =============================================================================
+
 @pytest.fixture
 def main_window(request):
     """Main Window fixture"""
@@ -184,20 +185,85 @@ def main_window(request):
     except AttributeError:
         pass
 
+    if not hasattr(main_window, 'window'):
+        main_window.window = start.main()
     # Start the window
-    window = start.main()
+    window = main_window.window
 
-    # Teardown
-    def close_window():
-        window.close()
-    request.addfinalizer(close_window)
+    yield window
 
-    return window
+    # Print shell content if failed
+    if request.node.rep_setup.passed:
+        if request.node.rep_call.failed:
+            # Print content of shellwidget and close window
+            print(window.ipyconsole.get_current_shellwidget(
+                )._control.toPlainText())
+            window.close()
+            del main_window.window
+        else:
+            # Close everything we can think of
+            window.editor.close_file()
+            window.projects.close_project()
+            if window.console.error_dlg:
+                window.console.close_error_dlg()
+            window.switcher.close()
+            client = window.ipyconsole.get_current_client()
+            window.ipyconsole.close_client(client=client)
+            # Reset cwd
+            window.explorer.chdir(get_home_dir())
+
+
+@pytest.fixture(scope="session", autouse=True)
+def cleanup(request):
+    """Cleanup a testing directory once we are finished."""
+    def remove_test_dir():
+        if hasattr(main_window, 'window'):
+            main_window.window.close()
+    request.addfinalizer(remove_test_dir)
 
 
 # =============================================================================
 # ---- Tests
 # =============================================================================
+@pytest.mark.slow
+@pytest.mark.single_instance
+@pytest.mark.skipif(os.environ.get('CI', None) is None,
+                    reason="It's not meant to be run outside of CIs")
+def test_single_instance_and_edit_magic(main_window, qtbot, tmpdir):
+    """Test single instance mode and %edit magic."""
+    editorstack = main_window.editor.get_current_editorstack()
+    shell = main_window.ipyconsole.get_current_shellwidget()
+    qtbot.waitUntil(lambda: shell._prompt_html is not None, timeout=SHELL_TIMEOUT)
+
+    spy_dir = osp.dirname(get_module_path('spyder'))
+    lock_code = ("import sys\n"
+                 "sys.path.append(r'{spy_dir_str}')\n"
+                 "from spyder.config.base import get_conf_path\n"
+                 "from spyder.utils.external import lockfile\n"
+                 "lock_file = get_conf_path('spyder.lock')\n"
+                 "lock = lockfile.FilesystemLock(lock_file)\n"
+                 "lock_created = lock.lock()".format(spy_dir_str=spy_dir))
+
+    # Test single instance
+    with qtbot.waitSignal(shell.executed):
+        shell.execute(lock_code)
+    assert not shell.get_value('lock_created')
+
+    # Test %edit magic
+    n_editors = editorstack.get_stack_count()
+    p = tmpdir.mkdir("foo").join("bar.py")
+    p.write(lock_code)
+
+    with qtbot.waitSignal(shell.executed):
+        shell.execute('%edit {}'.format(to_text_string(p)))
+
+    qtbot.wait(3000)
+    assert editorstack.get_stack_count() == n_editors + 1
+    assert editorstack.get_current_editor().toPlainText() == lock_code
+
+    main_window.editor.close_file()
+
+
 @pytest.mark.slow
 def test_lock_action(main_window):
     """Test the lock interface action."""
@@ -433,45 +499,6 @@ def test_window_title(main_window, tmpdir):
 
 
 @pytest.mark.slow
-@pytest.mark.single_instance
-@pytest.mark.skipif(os.environ.get('CI', None) is None,
-                    reason="It's not meant to be run outside of CIs")
-def test_single_instance_and_edit_magic(main_window, qtbot, tmpdir):
-    """Test single instance mode and %edit magic."""
-    editorstack = main_window.editor.get_current_editorstack()
-    shell = main_window.ipyconsole.get_current_shellwidget()
-    qtbot.waitUntil(lambda: shell._prompt_html is not None, timeout=SHELL_TIMEOUT)
-
-    spy_dir = osp.dirname(get_module_path('spyder'))
-    lock_code = ("import sys\n"
-                 "sys.path.append(r'{spy_dir_str}')\n"
-                 "from spyder.config.base import get_conf_path\n"
-                 "from spyder.utils.external import lockfile\n"
-                 "lock_file = get_conf_path('spyder.lock')\n"
-                 "lock = lockfile.FilesystemLock(lock_file)\n"
-                 "lock_created = lock.lock()".format(spy_dir_str=spy_dir))
-
-    # Test single instance
-    with qtbot.waitSignal(shell.executed):
-        shell.execute(lock_code)
-    assert not shell.get_value('lock_created')
-
-    # Test %edit magic
-    n_editors = editorstack.get_stack_count()
-    p = tmpdir.mkdir("foo").join("bar.py")
-    p.write(lock_code)
-
-    with qtbot.waitSignal(shell.executed):
-        shell.execute('%edit {}'.format(to_text_string(p)))
-
-    qtbot.wait(3000)
-    assert editorstack.get_stack_count() == n_editors + 1
-    assert editorstack.get_current_editor().toPlainText() == lock_code
-
-    main_window.editor.close_file()
-
-
-@pytest.mark.slow
 @flaky(max_runs=3)
 @pytest.mark.skipif(os.name == 'nt' or PY2, reason="It fails sometimes")
 @pytest.mark.parametrize(
@@ -498,24 +525,32 @@ def test_move_to_first_breakpoint(main_window, qtbot, debugcell):
     # Set breakpoint
     code_editor.debugger.toogle_breakpoint(line_number=10)
     qtbot.wait(500)
+    cursor = code_editor.textCursor()
+    cursor.setPosition(0)
+    code_editor.setTextCursor(cursor)
 
     if debugcell:
         # Advance 2 cells
         for i in range(2):
-            qtbot.keyClick(code_editor, Qt.Key_Return, modifier=Qt.ShiftModifier)
+            qtbot.keyClick(code_editor, Qt.Key_Return,
+                           modifier=Qt.ShiftModifier)
             qtbot.wait(500)
 
         # Debug the cell
         qtbot.keyClick(code_editor, Qt.Key_Return,
-               modifier=Qt.AltModifier | Qt.ShiftModifier)
-        qtbot.waitUntil(
-            lambda: shell._control.toPlainText().split()[-1] == 'ipdb>')
-        # We need to press continue as we don't test yet if a breakpoint
-        # is in the cell
-        qtbot.keyClick(shell._control, 'c')
-        qtbot.keyClick(shell._control, Qt.Key_Enter)
-        qtbot.waitUntil(
-            lambda: shell._control.toPlainText().split()[-1] == 'ipdb>')
+                       modifier=Qt.AltModifier | Qt.ShiftModifier)
+        try:
+            qtbot.waitUntil(
+                lambda: shell._control.toPlainText().split()[-1] == 'ipdb>')
+            # We need to press continue as we don't test yet if a breakpoint
+            # is in the cell
+            qtbot.keyClick(shell._control, 'c')
+            qtbot.keyClick(shell._control, Qt.Key_Enter)
+            qtbot.waitUntil(
+                lambda: shell._control.toPlainText().split()[-1] == 'ipdb>')
+        except Exception:
+            print('Shell content: ', shell._control.toPlainText(), '\n\n')
+            raise
     else:
         # Click the debug button
         qtbot.mouseClick(debug_button, Qt.LeftButton)
@@ -541,7 +576,11 @@ def test_move_to_first_breakpoint(main_window, qtbot, debugcell):
     qtbot.wait(1000)
 
     # Verify that we are still on debugging
-    assert shell.is_waiting_pdb_input()
+    try:
+        assert shell.is_waiting_pdb_input()
+    except Exception:
+        print('Shell content: ', shell._control.toPlainText(), '\n\n')
+        raise
 
     # Remove breakpoint and close test file
     main_window.editor.clear_all_breakpoints()
@@ -868,7 +907,7 @@ def test_open_notebooks_from_project_explorer(main_window, qtbot, tmpdir):
     projects.explorer.treewidget.convert_notebook(osp.join(project_dir, 'notebook.ipynb'))
 
     # Assert notebook was open
-    assert 'untitled0.py' in editorstack.get_current_filename()
+    assert 'untitled' in editorstack.get_current_filename()
 
     # Assert its contents are the expected ones
     file_text = editorstack.get_current_editor().toPlainText()
@@ -1214,6 +1253,7 @@ def test_maximize_minimize_plugins(main_window, qtbot):
     assert not main_window.editor._ismaximized
 
 
+@pytest.mark.slow
 @flaky(max_runs=3)
 @pytest.mark.skipif((os.name == 'nt' or
                      os.environ.get('CI', None) is not None and PYQT_VERSION >= '5.9'),
@@ -1432,6 +1472,10 @@ def test_change_cwd_dbg(main_window, qtbot):
     shell = main_window.ipyconsole.get_current_shellwidget()
     qtbot.waitUntil(lambda: shell._prompt_html is not None, timeout=SHELL_TIMEOUT)
 
+    # Load test file to be able to enter in debugging mode
+    test_file = osp.join(LOCATION, 'script.py')
+    main_window.editor.load(test_file)
+
     # Give focus to the widget that's going to receive clicks
     control = main_window.ipyconsole.get_focus_widget()
     control.setFocus()
@@ -1447,7 +1491,7 @@ def test_change_cwd_dbg(main_window, qtbot):
                                        browsing_history=False,
                                        refresh_explorer=True)
     qtbot.wait(1000)
-
+    print(repr(control.toPlainText()))
     shell.clear_console()
     qtbot.wait(500)
 
@@ -1470,6 +1514,10 @@ def test_varexp_magic_dbg(main_window, qtbot):
     # Wait until the window is fully up
     shell = main_window.ipyconsole.get_current_shellwidget()
     qtbot.waitUntil(lambda: shell._prompt_html is not None, timeout=SHELL_TIMEOUT)
+
+    # Load test file to be able to enter in debugging mode
+    test_file = osp.join(LOCATION, 'script.py')
+    main_window.editor.load(test_file)
 
     # Give focus to the widget that's going to receive clicks
     control = main_window.ipyconsole.get_focus_widget()
